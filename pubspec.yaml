@@ -18,11 +18,13 @@ dependencies:
   firebase_core: ^2.4.1
   firebase_ml_model_downloader: ^0.2.0+7
   camera: ^0.10.1
-  tflite_flutter: ^0.9.0
   image_picker: ^0.8.6
-  tflite_flutter_helper: ^0.2.1
   image: ^3.3.0
   path_provider: ^2.0.11
+  tflite: ^1.1.2
+  lecle_downloads_path_provider: ^0.0.2+8
+  permission: ^0.1.7
+  permission_handler: ^10.2.0
 
 dev_dependencies:
   flutter_test:

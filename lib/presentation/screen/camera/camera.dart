@@ -1,17 +1,13 @@
+import 'dart:io';
 import 'dart:isolate';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:ottaa_object_detector/application/common/isolate_utils.dart';
 import 'package:ottaa_object_detector/application/providers/fl_model_provider.dart';
-import 'package:ottaa_object_detector/application/tflite/classifier.dart';
-import 'package:ottaa_object_detector/application/tflite/recognition.dart';
-import 'package:ottaa_object_detector/application/tflite/stats.dart';
 import 'package:ottaa_object_detector/main.dart';
+import 'package:tflite/tflite.dart';
 import 'dart:math' as math;
-
-import 'package:tflite_flutter/tflite_flutter.dart';
 
 class CameraScreen extends ConsumerStatefulWidget {
   const CameraScreen({super.key});
@@ -25,11 +21,7 @@ class _CameraState extends ConsumerState<CameraScreen> with WidgetsBindingObserv
 
   bool predicting = false;
 
-  late Classifier classifier;
-
-  late IsolateUtils isolateUtils = IsolateUtils();
-
-  List<Recognition> results = [];
+  List<Rect> boundingBoxes = [];
 
   @override
   void initState() {
@@ -38,14 +30,10 @@ class _CameraState extends ConsumerState<CameraScreen> with WidgetsBindingObserv
     super.initState();
 
     final model = ref.read(flModelProvider);
-    controller = CameraController(kCameras[0], ResolutionPreset.low);
+    controller = CameraController(kCameras[0], ResolutionPreset.high);
     print(model!.file);
 
     WidgetsBinding.instance.addPostFrameCallback((timeStamp) async {
-      Interpreter interpreter = Interpreter.fromFile(model.file);
-
-      classifier = Classifier(interpreter: interpreter);
-      await isolateUtils.start();
       await controller.initialize();
       await controller.startImageStream(onLatestImageAvailable);
       setState(() {});
@@ -78,8 +66,12 @@ class _CameraState extends ConsumerState<CameraScreen> with WidgetsBindingObserv
         size: size,
         child: Stack(
           children: [
-            CameraPreview(controller),
-            ...boundingBoxes(screenW / previewH, previewSize),
+            OverflowBox(
+              maxHeight: screenRatio > previewRatio ? screenH : screenW / previewW * previewH,
+              maxWidth: screenRatio > previewRatio ? screenH / previewH * previewW : screenW,
+              child: CameraPreview(controller),
+            ),
+            ...getBoxes(screenW / previewH, previewSize),
           ],
         ),
       ),
@@ -91,29 +83,24 @@ class _CameraState extends ConsumerState<CameraScreen> with WidgetsBindingObserv
       predicting = true;
     });
 
-    var uiThreadTimeStart = DateTime.now().millisecondsSinceEpoch;
+    var startTime = DateTime.now().millisecondsSinceEpoch;
 
-    var isolateData = IsolateData(cameraImage, classifier.interpreter.address, classifier.labels);
+    var img = cameraImage;
 
-    Map<String, dynamic> inferenceResults = await inference(isolateData);
+    var recognitions = await Tflite.detectObjectOnFrame(
+      bytesList: img.planes.map((plane) {
+        return plane.bytes;
+      }).toList(),
+      model: "YOLO",
+    );
 
-    var uiThreadInferenceElapsedTime = DateTime.now().millisecondsSinceEpoch - uiThreadTimeStart;
+    int endTime = DateTime.now().millisecondsSinceEpoch;
 
-    results.clear();
-    results.addAll(inferenceResults["recognitions"]);
-
-    print((inferenceResults["stats"] as Stats)..totalElapsedTime = uiThreadInferenceElapsedTime);
+    print("Detection took ${endTime - startTime}");
 
     setState(() {
       predicting = false;
     });
-  }
-
-  Future<Map<String, dynamic>> inference(IsolateData isolateData) async {
-    ReceivePort responsePort = ReceivePort();
-    isolateUtils.sendPort.send(isolateData..responsePort = responsePort.sendPort);
-    var results = await responsePort.first;
-    return results;
   }
 
   @override
@@ -131,18 +118,16 @@ class _CameraState extends ConsumerState<CameraScreen> with WidgetsBindingObserv
     }
   }
 
-  List<Widget> boundingBoxes(double previewRatio, Size screen) {
-    if (results.isEmpty) {
+  List<Widget> getBoxes(double previewRatio, Size screen) {
+    if (boundingBoxes.isEmpty) {
       return [];
     }
-    return results.map((result) {
-      final renderRect = result.renderLocation(previewRatio, screen)!;
-
+    return boundingBoxes.map((result) {
       return Positioned.fromRect(
-        rect: renderRect,
+        rect: result,
         child: Container(
-          width: renderRect.width,
-          height: renderRect.height,
+          width: result.width,
+          height: result.height,
           decoration: BoxDecoration(
             border: Border.all(color: Colors.red, width: 2),
           ),

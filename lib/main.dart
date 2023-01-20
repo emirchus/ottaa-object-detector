@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ottaa_object_detector/application/application.dart';
 import 'package:ottaa_object_detector/firebase_options.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 List<CameraDescription> kCameras = [];
 void main() async {
@@ -14,6 +15,11 @@ void main() async {
   );
 
   kCameras.addAll(await availableCameras());
+
+  Map<Permission, PermissionStatus> statuses = await [
+    Permission.storage,
+    Permission.manageExternalStorage,
+  ].request();
 
   runApp(
     const ProviderScope(child: Application()),
