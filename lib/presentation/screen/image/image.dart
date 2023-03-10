@@ -1,16 +1,14 @@
 import 'dart:io';
 import 'dart:math';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_mlkit_object_detection/google_mlkit_object_detection.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:ottaa_object_detector/application/common/isolate_utils.dart';
 import 'package:ottaa_object_detector/application/providers/fl_model_provider.dart';
-import 'package:ottaa_object_detector/application/tflite/classifier.dart';
-import 'package:ottaa_object_detector/application/tflite/recognition.dart';
-import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:image/image.dart' as image_lib;
+
+final ModelManager modelManager = FirebaseObjectDetectorModelManager();
 
 class ImageScreen extends ConsumerStatefulWidget {
   const ImageScreen({super.key});
@@ -24,7 +22,7 @@ final picker = ImagePicker();
 class _ImageState extends ConsumerState<ImageScreen> {
   File? file;
 
-  List<Recognition> results = [];
+  List<DetectedObject> objects = [];
 
   @override
   void initState() {
@@ -32,12 +30,6 @@ class _ImageState extends ConsumerState<ImageScreen> {
     WidgetsBinding.instance.addPostFrameCallback((timeStamp) async {
       try {
         final model = ref.read(flModelProvider);
-
-        Interpreter interpreter = Interpreter.fromFile(model!.file);
-
-        Classifier classifier = Classifier(interpreter: interpreter);
-
-        await classifier.loadModel();
 
         final pickedFile = await picker.pickImage(source: ImageSource.gallery);
 
@@ -50,43 +42,27 @@ class _ImageState extends ConsumerState<ImageScreen> {
           file = File(pickedFile.path);
         });
 
-        final image = image_lib.decodeImage(file!.readAsBytesSync())!;
+        if (!(await modelManager.isModelDownloaded(model!.name))) {
+          await modelManager.downloadModel(model.name);
+        }
 
-        final isolateCamImgData = IsolateData(
-          width: image.width,
-          height: image.height,
-          image: image.getBytes(),
-          interpreterAddress: classifier.interpreter.address,
+        final options = FirebaseObjectDetectorOptions(
+          mode: DetectionMode.single,
+          modelName: model.name,
+          classifyObjects: true,
+          multipleObjects: true,
         );
 
-        var isolateData = await compute(inference, isolateCamImgData.toJson());
+        final objectDetector = ObjectDetector(options: options);
 
-        setState(() {
-          results = isolateData;
-        });
+        InputImage inputImage = InputImage.fromFile(file!);
+        objects.clear();
+        objects.addAll(await objectDetector.processImage(inputImage));
+        setState(() {});
       } catch (e) {
         print(e);
       }
     });
-  }
-
-  static Future<List<Recognition>> inference(String isolateCamImgDataString) async {
-    final isolateCamImgData = IsolateData.fromJson(isolateCamImgDataString);
-
-    var image = image_lib.Image.fromBytes(
-      isolateCamImgData.width,
-      isolateCamImgData.height,
-      isolateCamImgData.image,
-    );
-    final classifier = Classifier(
-      interpreter: Interpreter.fromAddress(
-        isolateCamImgData.interpreterAddress,
-      ),
-    );
-
-    await classifier.loadModel();
-
-    return classifier.predict(image);
   }
 
   @override
@@ -103,7 +79,7 @@ class _ImageState extends ConsumerState<ImageScreen> {
     var screenRatio = screenH / screenW;
     return Scaffold(
       appBar: AppBar(
-        title: Text('Results: ${results.length}'),
+        title: Text('Results: ${objects.length}'),
       ),
       body: SizedBox.fromSize(
         size: size,
@@ -121,7 +97,7 @@ class _ImageState extends ConsumerState<ImageScreen> {
   }
 
   List<Widget> boundingBoxes(double previewRatio, Size screen) {
-    if (results.isEmpty) {
+    if (objects.isEmpty) {
       return [];
     }
 
@@ -131,11 +107,10 @@ class _ImageState extends ConsumerState<ImageScreen> {
 
     final renderRation = rendersize.height / rendersize.width;
 
-    return results.map((result) {
-      final renderRect = result.getRenderLocation(
-        rendersize,
-        renderRation / previewRatio,
-      );
+    return objects.map((result) {
+      final renderRect = result.boundingBox;
+
+      final renderObject = result.labels.first;
 
       return Positioned(
         left: renderRect.left + 30,
@@ -157,7 +132,7 @@ class _ImageState extends ConsumerState<ImageScreen> {
                   padding: const EdgeInsets.all(5),
                   color: Colors.red,
                   child: Text(
-                    "${result.displayLabel} ${(result.score * 100).toStringAsFixed(0)}%",
+                    "${renderObject.text} ${(renderObject.confidence * 100).toStringAsFixed(0)}%",
                     style: const TextStyle(color: Colors.white),
                   ),
                 ),

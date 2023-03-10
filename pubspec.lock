@@ -240,6 +240,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "7.2.0"
+  google_mlkit_commons:
+    dependency: transitive
+    description:
+      name: google_mlkit_commons
+      sha256: af63771903947d5523d9e991a939a4b8bf994f11661c9b9c8a71d7d3997115f8
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.2.0"
+  google_mlkit_object_detection:
+    dependency: "direct main"
+    description:
+      name: google_mlkit_object_detection
+      sha256: "24fece1a4f111acebd8724ac6550327fab794556bee5140452d90f1b02f8fd82"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.6.0"
   http:
     dependency: transitive
     description:
@@ -542,30 +558,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.4.16"
-  tflite_flutter:
-    dependency: "direct main"
-    description:
-      name: tflite_flutter
-      sha256: "663483abf86066cdf9eae29df65e5e39ea5823d3f426507a81840d3b84ce58cd"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.9.0"
-  tflite_flutter_helper:
-    dependency: "direct main"
-    description:
-      name: tflite_flutter_helper
-      sha256: acda0ca6d9ff36051cd45d32e0f6e4979c9d37d5b599d1f1a2900c14c708ed55
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.2.1"
-  tuple:
-    dependency: transitive
-    description:
-      name: tuple
-      sha256: "0ea99cd2f9352b2586583ab2ce6489d1f95a5f6de6fb9492faaf97ae2060f0aa"
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.0.1"
   typed_data:
     dependency: transitive
     description:
