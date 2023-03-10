@@ -1,58 +1,130 @@
+// ignore_for_file: public_member_api_docs, sort_constructors_first
 import 'dart:math';
 
-import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 
-/// Represents the recognition output from the model
+const List<String> displayLabels = [
+  'person',
+  'bicycle',
+  'car',
+  'motorcycle',
+  'airplane',
+  'bus',
+  'train',
+  'truck',
+  'boat',
+  'traffic light',
+  'fire hydrant',
+  'stop sign',
+  'parking meter',
+  'bench',
+  'bird',
+  'cat',
+  'dog',
+  'horse',
+  'sheep',
+  'cow',
+  'elephant',
+  'bear',
+  'zebra',
+  'giraffe',
+  'backpack',
+  'umbrella',
+  'handbag',
+  'tie',
+  'suitcase',
+  'frisbee',
+  'skis',
+  'snowboard',
+  'sports ball',
+  'kite',
+  'baseball bat',
+  'baseball glove',
+  'skateboard',
+  'surfboard',
+  'tennis racket',
+  'bottle',
+  'wine glass',
+  'cup',
+  'fork',
+  'knife',
+  'spoon',
+  'bowl',
+  'banana',
+  'apple',
+  'sandwich',
+  'orange',
+  'broccoli',
+  'carrot',
+  'hot dog',
+  'pizza',
+  'donut',
+  'cake',
+  'chair',
+  'couch',
+  'potted plant',
+  'bed',
+  'dining table',
+  'toilet',
+  'tv',
+  'laptop',
+  'mouse',
+  'remote',
+  'keyboard',
+  'cell phone',
+  'microwave',
+  'oven',
+  'toaster',
+  'sink',
+  'refrigerator',
+  'book',
+  'clock',
+  'vase',
+  'scissors',
+  'teddy bear',
+  'hair drier',
+  'toothbrush',
+];
+
 class Recognition {
-  /// Index of the result
+  Recognition(this._id, this._labelId, this._score, this._location);
   final int _id;
-
-  /// Label of the result
-  final String _label;
-
-  /// Confidence [0.0, 1.0]
-  final double _score;
-
-  /// Location of bounding box rect
-  ///
-  /// The rectangle corresponds to the raw input image
-  /// passed for inference
-  final Rect? _location;
-
-  Recognition(this._id, this._label, this._score, [this._location]);
-
   int get id => _id;
-
-  String get label => _label;
-
+  final int _labelId;
+  int get label => _labelId;
+  String get displayLabel => displayLabels[_labelId];
+  final double _score;
   double get score => _score;
+  final Rect _location;
+  Rect get location => _location;
 
-  Rect? get location => _location;
+  Rect getRenderLocation(Size actualPreviewSize, double pixelRatio) {
+    final ratioX = pixelRatio;
+    final ratioY = ratioX;
 
-  /// Returns bounding box rectangle corresponding to the
-  /// displayed image on screen
-  ///
-  /// This is the actual location where rectangle is rendered on
-  /// the screen
-  Rect? renderLocation(double ratio, Size screenSize) {
-    // ratioX = screenWidth / imageInputWidth
-    // ratioY = ratioX if image fits screenWidth with aspectRatio = constant
-    double ratioX = ratio;
-    double ratioY = ratioX;
-
-    if (location == null) return null;
-
-    double transLeft = max(0.1, location!.left * ratioX);
-    double transTop = max(0.1, location!.top * ratioY);
-    double transWidth = min(location!.width * ratioX, screenSize.width);
-    double transHeight = min(location!.height * ratioY, screenSize.height);
-
-    Rect transformedRect = Rect.fromLTWH(transLeft, transTop, transWidth, transHeight);
+    final transLeft = max(0.1, location.left * ratioX);
+    final transTop = max(0.1, location.top * ratioY);
+    final transWidth = min(
+      location.width * ratioX,
+      actualPreviewSize.width,
+    );
+    final transHeight = min(
+      location.height * ratioY,
+      actualPreviewSize.height,
+    );
+    final transformedRect = Rect.fromLTWH(transLeft, transTop, transWidth, transHeight);
     return transformedRect;
   }
 
   @override
-  String toString() {
-    return 'Recognition(id: $id, label: $label, score: $score, location: $location)';
+  bool operator ==(covariant Recognition other) {
+    if (identical(this, other)) return true;
+
+    return other._score == _score && other._location == _location;
+  }
+
+  @override
+  int get hashCode {
+    return _score.hashCode ^ _location.hashCode;
   }
 }

@@ -1,161 +1,105 @@
 import 'dart:math';
 import 'dart:ui';
 
-import 'package:flutter/material.dart';
-import 'package:image/image.dart' as imageLib;
+import 'package:image/image.dart' as image_lib;
 import 'package:ottaa_object_detector/application/tflite/recognition.dart';
-import 'package:ottaa_object_detector/application/tflite/stats.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:tflite_flutter_helper/tflite_flutter_helper.dart';
 
-/// Classifier
+
 class Classifier {
-  /// Instance of Interpreter
-  Interpreter interpreter;
-
-  /// Labels file loaded as list
-  List<String> labels;
-
-  /// Input size of image (height = width = 300)
-  static const int INPUT_SIZE = 300;
-
-  /// Result score threshold
-  static const double THRESHOLD = 0.5;
-
-  /// [ImageProcessor] used to pre-process the image
-  ImageProcessor? imageProcessor;
-
-  /// Padding the image to transform into square
-  late int padSize;
-
-  /// Shapes of output tensors
-  List<List<int>> _outputShapes = [];
-
-  /// Types of output tensors
-  List<TfLiteType> _outputTypes = [];
-
-  /// Number of results to show
-  static const int NUM_RESULTS = 10;
-
   Classifier({
     required this.interpreter,
-    this.labels = const [],
-  }) {
-    loadModel(interpreter: interpreter);
-  }
+  });
 
-  /// Loads interpreter from asset
-  void loadModel({required Interpreter interpreter}) async {
+  final Interpreter interpreter;
+  static const int inputSize = 640;
+
+  ImageProcessor? imageProcessor;
+  List<List<int>> outputShapes = [];
+  List<TfLiteType> outputTypes = [];
+
+  static const int clsNum = 80;
+  static const double objConfTh = 0.20;
+  static const double clsConfTh = 0.20;
+
+  Future<void> loadModel() async {
     try {
-      this.interpreter = interpreter;
-      var outputTensors = this.interpreter.getOutputTensors();
-      _outputShapes = [];
-      _outputTypes = [];
-      for (var tensor in outputTensors) {
-        _outputShapes.add(tensor.shape);
-        _outputTypes.add(tensor.type);
+      final outputTensors = interpreter.getOutputTensors();
+
+      for (final tensor in outputTensors) {
+        outputShapes.add(tensor.shape);
+        outputTypes.add(tensor.type);
       }
-    } catch (e) {
-      print("Error while creating interpreter: $e");
+    } on Exception catch (e) {
+      print(e);
     }
   }
 
-  /// Pre-process the image
+  /// image pre process
   TensorImage getProcessedImage(TensorImage inputImage) {
-    padSize = max(inputImage.height, inputImage.width);
-    imageProcessor ??= ImageProcessorBuilder().add(ResizeWithCropOrPadOp(padSize, padSize)).add(ResizeOp(INPUT_SIZE, INPUT_SIZE, ResizeMethod.BILINEAR)).build();
-    inputImage = imageProcessor!.process(inputImage);
-    return inputImage;
+    final padSize = max(inputImage.height, inputImage.width);
+
+    imageProcessor ??= ImageProcessorBuilder()
+        .add(
+          ResizeWithCropOrPadOp(padSize, padSize),
+        )
+        .add(
+          ResizeOp(inputSize, inputSize, ResizeMethod.NEAREST_NEIGHBOUR),
+        )
+        .build();
+
+    return imageProcessor!.process(inputImage);
   }
 
-  /// Runs object detection on the input image
-  Map<String, dynamic> predict(imageLib.Image image) {
-    var predictStartTime = DateTime.now().millisecondsSinceEpoch;
+  List<Recognition> predict(image_lib.Image image) {
+    var inputImage = TensorImage.fromImage(image);
 
-    var preProcessStart = DateTime.now().millisecondsSinceEpoch;
-
-    // Create TensorImage from image
-    TensorImage inputImage = TensorImage.fromImage(image);
-
-    // Pre-process TensorImage
     inputImage = getProcessedImage(inputImage);
 
-    var preProcessElapsedTime = DateTime.now().millisecondsSinceEpoch - preProcessStart;
+    List<double> normalizedInputImage = [];
+    for (var pixel in inputImage.tensorBuffer.getDoubleList()) {
+      normalizedInputImage.add(pixel / 255.0);
+    }
+    var normalizedTensorBuffer = TensorBuffer.createDynamic(TfLiteType.float32);
+    normalizedTensorBuffer.loadList(normalizedInputImage, shape: [inputSize, inputSize, 3]);
 
-    // TensorBuffers for output tensors
-    TensorBuffer outputLocations = TensorBufferFloat(_outputShapes[0]);
-    TensorBuffer outputClasses = TensorBufferFloat(_outputShapes[1]);
-    TensorBuffer outputScores = TensorBufferFloat(_outputShapes[2]);
-    TensorBuffer numLocations = TensorBufferFloat(_outputShapes[3]);
+    final inputs = [];
 
-    // Inputs object for runForMultipleInputs
-    // Use [TensorImage.buffer] or [TensorBuffer.buffer] to pass by reference
-    List<Object> inputs = [inputImage.buffer];
+    TensorBuffer outputLocations = TensorBufferFloat(outputShapes[0]);
 
-    // Outputs map
-    Map<int, Object> outputs = {
-      0: outputLocations.buffer,
-      1: outputClasses.buffer,
-      2: outputScores.buffer,
-      3: numLocations.buffer,
-    };
+    interpreter.run(normalizedTensorBuffer.buffer, outputLocations.buffer);
 
-    var inferenceTimeStart = DateTime.now().millisecondsSinceEpoch;
+    final recognitions = <Recognition>[];
+    List<double> results = outputLocations.getDoubleList();
 
-    // run inference
-    interpreter.runForMultipleInputs(inputs, outputs);
+    print("${results.length}");
 
-    var inferenceTimeElapsed = DateTime.now().millisecondsSinceEpoch - inferenceTimeStart;
+    for (var i = 0; i < results.length; i += 5 + clsNum) {
+      if (results[i + 4] < objConfTh) continue;
 
-    // Maximum number of results to show
-    int resultsCount = min(NUM_RESULTS, numLocations.getIntValue(0));
+      double maxClsConf = results.sublist(i + 5, i + 5 + clsNum - 1).reduce(max);
 
-    // Using labelOffset = 1 as ??? at index 0
-    int labelOffset = 1;
+      if (maxClsConf < clsConfTh) continue;
 
-    // Using bounding box utils for easy conversion of tensorbuffer to List<Rect>
-    List<Rect> locations = BoundingBoxUtils.convert(
-      tensor: outputLocations,
-      valueIndex: [1, 0, 3, 2],
-      boundingBoxAxis: 2,
-      boundingBoxType: BoundingBoxType.BOUNDARIES,
-      coordinateType: CoordinateType.RATIO,
-      height: INPUT_SIZE,
-      width: INPUT_SIZE,
-    );
+      int cls = results.sublist(i + 5, i + 5 + clsNum - 1).indexOf(maxClsConf) % clsNum;
+      Rect outputRect = Rect.fromCenter(
+        center: Offset(
+          results[i] * inputSize,
+          results[i + 1] * inputSize,
+        ),
+        width: results[i + 2] * inputSize,
+        height: results[i + 3] * inputSize,
+      );
+      Rect transformRect = imageProcessor!.inverseTransformRect(outputRect, image.height, image.width);
 
-    List<Recognition> recognitions = [];
+      print(displayLabels[cls]);
 
-    for (int i = 0; i < resultsCount; i++) {
-      // Prediction score
-      var score = outputScores.getDoubleValue(i);
+      final recog = Recognition(i, cls, maxClsConf, transformRect);
 
-      // Label string
-      var labelIndex = outputClasses.getIntValue(i) + labelOffset;
-      // var label = labels.elementAt(labelIndex);
-
-      if (score > THRESHOLD) {
-        // inverse of rect
-        // [locations] corresponds to the image size 300 X 300
-        // inverseTransformRect transforms it our [inputImage]
-        Rect transformedRect = imageProcessor!.inverseTransformRect(locations[i], image.height, image.width);
-
-        recognitions.add(
-          Recognition(i, "", score, transformedRect),
-        );
-      }
+      recognitions.add(Recognition(i, cls, maxClsConf, transformRect));
     }
 
-    var predictElapsedTime = DateTime.now().millisecondsSinceEpoch - predictStartTime;
-
-    return {
-      "recognitions": recognitions,
-      "stats": Stats(
-        totalPredictTime: predictElapsedTime,
-        totalElapsedTime: predictElapsedTime,
-        inferenceTime: inferenceTimeElapsed,
-        preProcessingTime: preProcessElapsedTime,
-      ),
-    };
+    return recognitions;
   }
 }

@@ -1,57 +1,38 @@
-import 'dart:io';
-import 'dart:isolate';
+// ignore_for_file: public_member_api_docs, sort_constructors_first
+import 'dart:convert';
+import 'dart:typed_data';
 
-import 'package:camera/camera.dart';
-import 'package:image/image.dart' as image_lib;
-import 'package:tflite_flutter/tflite_flutter.dart';
-
-import 'package:ottaa_object_detector/application/common/image_utils.dart';
-import 'package:ottaa_object_detector/application/tflite/classifier.dart';
-
-/// Manages separate Isolate instance for inference
-class IsolateUtils {
-  static const String DEBUG_NAME = "InferenceIsolate";
-
-  late Isolate isolate;
-  final ReceivePort _receivePort = ReceivePort();
-  late SendPort sendPort;
-
-  Future<void> start() async {
-    isolate = await Isolate.spawn<SendPort>(
-      entryPoint,
-      _receivePort.sendPort,
-      debugName: DEBUG_NAME,
-    );
-
-    sendPort = await _receivePort.first;
-  }
-
-  static void entryPoint(SendPort sendPort) async {
-    final port = ReceivePort();
-    sendPort.send(port.sendPort);
-
-    await for (final IsolateData isolateData in port) {
-      if (isolateData != null) {
-        Classifier classifier = Classifier(interpreter: Interpreter.fromAddress(isolateData.interpreterAddress));
-        image_lib.Image? image = ImageUtils.convertCameraImage(isolateData.cameraImage);
-        if (image == null) return;
-
-        if (Platform.isAndroid) {
-          image = image_lib.copyRotate(image, 90);
-        }
-        Map<String, dynamic> results = classifier.predict(image);
-        isolateData.responsePort?.send(results);
-      }
-    }
-  }
-}
-
-/// Bundles data to pass between Isolate
 class IsolateData {
-  CameraImage cameraImage;
-  int interpreterAddress;
-  List<String> labels;
-  SendPort? responsePort;
+  IsolateData({
+    required this.width,
+    required this.height,
+    required this.image,
+    required this.interpreterAddress,
+  });
+  final int width;
+  final int height;
+  final Uint8List image;
+  final int interpreterAddress;
 
-  IsolateData(this.cameraImage, this.interpreterAddress, this.labels, [this.responsePort]);
+  Map<String, dynamic> toMap() {
+    return <String, dynamic>{
+      'width': width,
+      'height': height,
+      'image': image.toList(),
+      'interpreterAddress': interpreterAddress,
+    };
+  }
+
+  factory IsolateData.fromMap(Map<String, dynamic> map) {
+    return IsolateData(
+      width: map['width'] as int,
+      height: map['height'] as int,
+      image: Uint8List.fromList(List<int>.from(map['image'] as List<dynamic>)),
+      interpreterAddress: map['interpreterAddress'] as int,
+    );
+  }
+
+  String toJson() => json.encode(toMap());
+
+  factory IsolateData.fromJson(String source) => IsolateData.fromMap(json.decode(source) as Map<String, dynamic>);
 }

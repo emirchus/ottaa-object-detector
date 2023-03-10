@@ -1,5 +1,3 @@
-import 'dart:developer';
-
 import 'package:firebase_ml_model_downloader/firebase_ml_model_downloader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,7 +6,6 @@ import 'package:ottaa_object_detector/main.dart';
 import 'package:ottaa_object_detector/presentation/ui/input_button.dart';
 import 'package:ottaa_object_detector/presentation/ui/loading_modal.dart';
 import 'package:ottaa_ui_kit/widgets.dart';
-import 'package:tflite_flutter/tflite_flutter.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -28,7 +25,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       try {
         final model = await FirebaseModelDownloader.instance.getModel(
           name,
-          FirebaseModelDownloadType.localModel,
+          FirebaseModelDownloadType.latestModel,
           FirebaseModelDownloadConditions(
             androidWifiRequired: true,
           ),
@@ -47,8 +44,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final model = ref.watch(flModelProvider);
 
     return Scaffold(
-      appBar: const OTTAAAppBar(
-        title: Text("OTTAA Object Detector"),
+      appBar: AppBar(
+        title: const Text("OTTAA Object Detector"),
       ),
       body: SizedBox.fromSize(
         size: size,

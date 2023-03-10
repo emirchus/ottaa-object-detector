@@ -1,16 +1,16 @@
-import 'dart:isolate';
-
+import 'dart:io';
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:ottaa_object_detector/application/common/image_utils.dart';
 import 'package:ottaa_object_detector/application/common/isolate_utils.dart';
 import 'package:ottaa_object_detector/application/providers/fl_model_provider.dart';
 import 'package:ottaa_object_detector/application/tflite/classifier.dart';
 import 'package:ottaa_object_detector/application/tflite/recognition.dart';
-import 'package:ottaa_object_detector/application/tflite/stats.dart';
 import 'package:ottaa_object_detector/main.dart';
 import 'dart:math' as math;
-
+import 'package:image/image.dart' as image_lib;
 import 'package:tflite_flutter/tflite_flutter.dart';
 
 class CameraScreen extends ConsumerStatefulWidget {
@@ -27,8 +27,6 @@ class _CameraState extends ConsumerState<CameraScreen> with WidgetsBindingObserv
 
   late Classifier classifier;
 
-  late IsolateUtils isolateUtils = IsolateUtils();
-
   List<Recognition> results = [];
 
   @override
@@ -38,14 +36,17 @@ class _CameraState extends ConsumerState<CameraScreen> with WidgetsBindingObserv
     super.initState();
 
     final model = ref.read(flModelProvider);
-    controller = CameraController(kCameras[0], ResolutionPreset.low);
+    controller = CameraController(
+      kCameras[0],
+      ResolutionPreset.low,
+      enableAudio: false,
+    );
     print(model!.file);
 
     WidgetsBinding.instance.addPostFrameCallback((timeStamp) async {
       Interpreter interpreter = Interpreter.fromFile(model.file);
 
       classifier = Classifier(interpreter: interpreter);
-      await isolateUtils.start();
       await controller.initialize();
       await controller.startImageStream(onLatestImageAvailable);
       setState(() {});
@@ -93,27 +94,47 @@ class _CameraState extends ConsumerState<CameraScreen> with WidgetsBindingObserv
 
     var uiThreadTimeStart = DateTime.now().millisecondsSinceEpoch;
 
-    var isolateData = IsolateData(cameraImage, classifier.interpreter.address, classifier.labels);
+    final isolateCamImgData = IsolateData(
+      height: cameraImage.height,
+      width: cameraImage.width,
+      image: ImageUtils.convertYUV420ToImage(
+        cameraImage,
+      ).getBytes(),
+      interpreterAddress: classifier.interpreter.address,
+    );
 
-    Map<String, dynamic> inferenceResults = await inference(isolateData);
+    var isolateData = await compute(inference, isolateCamImgData.toJson(), debugLabel: 'isolateCamImgData');
 
     var uiThreadInferenceElapsedTime = DateTime.now().millisecondsSinceEpoch - uiThreadTimeStart;
 
     results.clear();
-    results.addAll(inferenceResults["recognitions"]);
-
-    print((inferenceResults["stats"] as Stats)..totalElapsedTime = uiThreadInferenceElapsedTime);
+    results.addAll(isolateData);
 
     setState(() {
       predicting = false;
     });
   }
 
-  Future<Map<String, dynamic>> inference(IsolateData isolateData) async {
-    ReceivePort responsePort = ReceivePort();
-    isolateUtils.sendPort.send(isolateData..responsePort = responsePort.sendPort);
-    var results = await responsePort.first;
-    return results;
+  static Future<List<Recognition>> inference(String isolateCamImgDataString) async {
+    final isolateCamImgData = IsolateData.fromJson(isolateCamImgDataString);
+
+    var image = image_lib.Image.fromBytes(
+      isolateCamImgData.width,
+      isolateCamImgData.height,
+      isolateCamImgData.image,
+    );
+
+    if (Platform.isAndroid) {
+      image = image_lib.copyRotate(image, 90);
+    }
+
+    final classifier = Classifier(
+      interpreter: Interpreter.fromAddress(
+        isolateCamImgData.interpreterAddress,
+      ),
+    );
+
+    return classifier.predict(image);
   }
 
   @override
@@ -136,7 +157,7 @@ class _CameraState extends ConsumerState<CameraScreen> with WidgetsBindingObserv
       return [];
     }
     return results.map((result) {
-      final renderRect = result.renderLocation(previewRatio, screen)!;
+      final renderRect = result.getRenderLocation(screen, previewRatio);
 
       return Positioned.fromRect(
         rect: renderRect,
@@ -145,6 +166,23 @@ class _CameraState extends ConsumerState<CameraScreen> with WidgetsBindingObserv
           height: renderRect.height,
           decoration: BoxDecoration(
             border: Border.all(color: Colors.red, width: 2),
+          ),
+          child: Stack(
+            children: [
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  padding: EdgeInsets.all(5),
+                  color: Colors.red,
+                  child: Text(
+                    "${result.displayLabel} ${(result.score * 100).toStringAsFixed(0)}%",
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       );
