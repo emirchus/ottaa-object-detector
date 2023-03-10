@@ -7,7 +7,7 @@ import Foundation
 
 import firebase_core
 import firebase_ml_model_downloader
-import path_provider_macos
+import path_provider_foundation
 
 func RegisterGeneratedPlugins(registry: FlutterPluginRegistry) {
   FLTFirebaseCorePlugin.register(with: registry.registrar(forPlugin: "FLTFirebaseCorePlugin"))
